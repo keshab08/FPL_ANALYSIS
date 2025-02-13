@@ -8,6 +8,8 @@ import requests
 
 # Fetch data from API
 FPL_API_URL = "https://fantasy.premierleague.com/api/bootstrap-static/"
+FPL_FIXTURES_URL = "https://fantasy.premierleague.com/api/fixtures/"
+FPL_PLAYERS_URL = "https://fantasy.premierleague.com/api/bootstrap-static/"
 response = requests.get(FPL_API_URL)
 data = response.json()
 
@@ -104,6 +106,7 @@ def get_player_stats(player_name):
 # Predict FPL points
 def predict_fpl_points(player_name):
     """Predicts points using the trained model."""
+    has_double_gameweek(player_name)
 
     player_stats = get_player_stats(player_name)
     if player_stats is None:
@@ -118,9 +121,69 @@ def predict_fpl_points(player_name):
     player_df = pd.DataFrame([player_stats], columns=feature_names)
 
     # Predict and return result
-    predicted_points = model.predict(player_df)[0]
+    if (has_double_gameweek(player_name)):
+     predicted_points = model.predict(player_df)[0] * 2
+    else:
+     predicted_points = model.predict(player_df)[0]
     print(f"🔮 Predicted Points for {player_name}: {predicted_points:.2f}")
+
     return predicted_points
+
+
+
+def get_double_gameweeks():
+    """Fetch fixture data and identify teams with double gameweeks."""
+    response = requests.get(FPL_FIXTURES_URL)
+    fixtures = pd.DataFrame(response.json())
+
+    # Reshape the data to have one row per team per fixture
+    home_fixtures = fixtures[["event", "team_h"]].rename(columns={"team_h": "team"})
+    away_fixtures = fixtures[["event", "team_a"]].rename(columns={"team_a": "team"})
+
+    # Combine home and away fixtures into a single DataFrame
+    all_fixtures = pd.concat([home_fixtures, away_fixtures])
+
+    # Group by gameweek and team to count the number of fixtures
+    fixture_counts = all_fixtures.groupby(["event", "team"]).size().reset_index(name="num_fixtures")
+
+    # Filter for teams with more than one fixture in a gameweek
+    double_gameweeks = fixture_counts[fixture_counts["num_fixtures"] > 1]
+    return double_gameweeks
+
+def get_player_team(player_name):
+    """Fetch the team ID for a specific player by name."""
+    response = requests.get(FPL_PLAYERS_URL)
+    players_data = response.json()["elements"]
+
+    # Find player by name
+    player = next((player for player in players_data if player["web_name"].lower() == player_name.lower()), None)
+
+    if player:
+        return player["team"]
+    else:
+        raise ValueError(f"Player with name '{player_name}' not found.")
+
+
+def has_double_gameweek(player_name):
+    """Check if a player has a double gameweek based on their name."""
+    # Get the player's team ID
+    team_id = get_player_team(player_name)
+
+    # Get the list of teams with double gameweeks
+    double_gameweeks = get_double_gameweeks()
+
+    # Check if the player's team has a double gameweek
+    player_double_gameweeks = double_gameweeks[double_gameweeks["team"] == team_id]
+    if not player_double_gameweeks.empty:
+        #print(f"Player {player_name} has a double gameweek in the following gameweeks:")
+
+        return True
+    else:
+
+        return False
+
+
+# Example usage
 
 
 # Example Usage
